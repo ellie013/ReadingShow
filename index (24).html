@@ -1,0 +1,1129 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>悅讀分享牆 (極速版)</title>
+  <script async src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // ⚠️ 請在這裡換上您的 Google Apps Script 網址
+    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwD4UdN2isnLmVZe5TtSOCyZX9EREzteqWNi2URDDy9SZu96HW4MfehjiZzEowuQWU/exec";
+    let appState = {
+      tab: 'view',
+      students: [],
+      articles: [],
+      pendingArticles: [],
+      pendingReplies: [],
+      studentToken: null,
+      featuredSelection: [],
+      featuredBusy: false,
+      adminPassword: '',
+      statsArticles: [],
+      statsStart: '',
+      statsEnd: '',
+      statsClass: '',
+      statsLoading: false,
+      statsError: '',
+      currentRole: 'student',
+      myArticles: [],
+      editingPostId: null,
+      adminBusy: false,
+      adminLoading: false,
+      adminError: '',
+      currentUser: null,
+      searchQuery: '',
+      carouselIndex: 0,
+      imageProcessing: false,
+      uploadedImageBase64: ''
+    };
+    let carouselTimer = null;
+    let authCallback = null;
+    let authLikeIntent = null;
+    let authBusy = false;
+    let titleClickCount = 0;
+    let titleClickTimer = null;
+    if (window.tailwind) window.tailwind.config = {
+      theme: { extend: { animation: { 'spin': 'spin 1s linear infinite', 'pulse': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' } } }
+    }
+    const Icons = {
+      Book: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>`,
+      BookOpen: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>`,
+      Monitor: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`,
+      PenTool: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>`,
+      GraduationCap: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`,
+      User: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+      Lock: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
+      Camera: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>`,
+      ImageIcon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`,
+      Search: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>`,
+      X: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+      Loader2: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>`,
+      Heart: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`,
+      HeartFilled: `<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`,
+      MessageCircle: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`,
+      ChevronLeft: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>`,
+      Send: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
+      CheckCircle: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`
+    };
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.innerHTML = `${Icons.CheckCircle} <span>${msg}</span>`;
+      toast.classList.remove('hidden');
+      toast.classList.add('flex');
+      setTimeout(() => { toast.classList.add('hidden'); toast.classList.remove('flex'); }, 3000);
+    }
+    async function fetchWithRetry(url, options = {}, retries = 1) {
+      if (url === GAS_WEB_APP_URL && String(options.method || 'GET').toUpperCase() === 'GET') url=GAS_WEB_APP_URL+'?action=getArticles&includeImages=0';
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      let timer;
+      const requestOptions={...options};
+      if(controller)requestOptions.signal=controller.signal;
+      try {
+        const work=(async()=>{
+          const response=await fetch(url,requestOptions);
+          if(!response.ok)throw new Error(`連線錯誤：HTTP ${response.status}`);
+          try {return await response.json();}
+          catch(error){throw new Error('伺服器未回傳有效資料，請確認 GAS 部署權限及網址');}
+        })();
+        const timeout=new Promise((resolve,reject)=>{timer=setTimeout(()=>{reject(new Error('資料更新較慢，請稍後重試（已等待60秒）'));if(controller)controller.abort();},60000);});
+        return await Promise.race([work,timeout]);
+      } catch(error) {
+        if(retries===0 || String(options.method || 'GET').toUpperCase() !== 'GET')throw error;
+        await new Promise(resolve=>setTimeout(resolve,1000));
+        return fetchWithRetry(url,options,retries-1);
+      } finally {clearTimeout(timer);}
+    }
+    let photoLoads=0;
+    function loadArticlePhotos() {
+      if(appState.tab !== 'view' && appState.tab !== 'carousel')return;
+      while(photoLoads<2) {
+        const article=appState.articles.find(item=>item.hasImage && !item.bookImage && !item.photoRequested);
+        if(!article)return;
+        article.photoRequested=true;photoLoads++;
+        fetchWithRetry(`${GAS_WEB_APP_URL}?action=getArticleImage&imageKey=${encodeURIComponent(article.imageKey)}`,{},0)
+          .then(res=>{
+            if(res.status !== 'success')throw new Error(res.message || '封面讀取失敗');
+            const photo=String(res.bookImage || '').trim();
+            if(!photo)throw new Error('伺服器沒有回傳封面，請確認最新 GAS 已部署');
+            const current=appState.articles.find(item=>String(item.timestamp)===String(article.timestamp));
+            article.bookImage=photo;
+            if(current){current.bookImage=photo;current.photoRequested=true;current.photoError='';}
+            savePublicCache();
+            if(appState.tab === 'view')renderView();
+            else if(appState.tab === 'carousel' && String(getCarouselArticles()[appState.carouselIndex]?.timestamp) === String(article.timestamp))updateCarouselUI();
+          }).catch(error=>{console.warn('封面載入失敗',error);const current=appState.articles.find(item=>String(item.timestamp)===String(article.timestamp));if(current){current.photoError=error.message;current.photoRequested=true;}setLoadNotice('封面讀取失敗：'+error.message);if(appState.tab==='view')renderView();else if(appState.tab==='carousel')updateCarouselUI();})
+          .finally(()=>{photoLoads--;loadArticlePhotos();});
+      }
+    }
+    function retryArticlePhoto(timestamp) {
+      const article=appState.articles.find(item=>String(item.timestamp)===String(timestamp));
+      if(!article)return;
+      article.photoRequested=false;article.photoError='';article.bookImage='';
+      loadArticlePhotos();
+      showToast('正在重新讀取封面…');
+    }
+    function photoPlaceholder(article) {
+      if(!article.hasImage || article.bookImage)return '';
+      return `<div class="bg-white/20 rounded-2xl p-6 text-center"><p>${article.photoError ? '封面載入失敗' : '封面讀取中…'}</p>${article.photoError ? `<p class="text-sm mt-2">${escapeHtml(article.photoError)}</p><button onclick="retryArticlePhoto('${escapeHtml(String(article.timestamp))}')" class="mt-4 bg-orange-100 text-orange-700 px-4 py-2 rounded-xl">重新載入封面</button>` : ''}</div>`;
+    }
+    const publicCacheKey='reading-wall:public-cache:'+GAS_WEB_APP_URL;
+    function savePublicCache() {
+      try {localStorage.setItem(publicCacheKey,JSON.stringify({savedAt:new Date().toISOString(),articles:appState.articles.map(({photoRequested,photoError,...article})=>article),students:appState.students}));}catch(error){console.warn('無法儲存離線快取',error);}
+    }
+    function restorePublicCache() {
+      try {
+        const raw=localStorage.getItem(publicCacheKey);if(!raw)return null;
+        const cache=JSON.parse(raw);
+        if(!Array.isArray(cache.articles) || !Array.isArray(cache.students))return null;
+        appState.articles=cache.articles;appState.students=cache.students;
+        return cache.savedAt;
+      }catch(error){return null;}
+    }
+    let initialLoadBusy=false;
+    function setLoadNotice(message) {
+      let notice=document.getElementById('load-notice');
+      if(!notice){notice=document.createElement('div');notice.id='load-notice';notice.style.cssText='position:fixed;bottom:12px;left:12px;right:12px;padding:16px;background:#fff7ed;color:#9a3412;border:2px solid #fdba74;border-radius:16px;z-index:200;font:18px sans-serif;';document.body.appendChild(notice);}
+      notice.hidden=!message;
+      if(message)notice.innerHTML=`<span>${escapeHtml(message)}</span> <button onclick="loadInitialData()" style="margin-left:12px;padding:8px 16px;cursor:pointer">重新讀取</button>`;
+    }
+    async function loadInitialData() {
+      if(initialLoadBusy)return;
+      initialLoadBusy=true;
+      const cachedAt=restorePublicCache();
+      const overlay=document.getElementById('loading-overlay');
+      overlay.classList.add('hidden');
+      if(appState.tab==='view' || appState.tab==='carousel')renderApp();
+      setLoadNotice(cachedAt ? '已顯示上次資料（'+new Date(cachedAt).toLocaleString('zh-TW')+'），正在背景更新…' : '正在取得首次資料，完成後會自動顯示；畫面不會被鎖住。');
+      const errors=[];
+      // 文章與名單各自完成，不讓名單的慢連線卡住文章畫面。
+      const articlesTask=(async()=>{
+        try{
+          const res=await fetchWithRetry(GAS_WEB_APP_URL,{},0);
+          if(res.status !== 'success' || !Array.isArray(res.data))throw new Error(res.message || '文章資料格式錯誤');
+          const previous=new Map(appState.articles.map(article=>[String(article.timestamp),article.bookImage]));
+          appState.articles=res.data.map(article=>({...article,bookImage:article.hasImage ? previous.get(String(article.timestamp)) || article.bookImage : ''}));
+          savePublicCache();
+          overlay.classList.add('hidden');
+          if(appState.tab==='view' || appState.tab==='carousel'){renderApp();loadArticlePhotos();}
+        }catch(error){errors.push('文章：'+error.message);}
+      })();
+      const studentsTask=appState.tab==='carousel' ? Promise.resolve() : (async()=>{
+        try{
+          const res=await fetchWithRetry(`${GAS_WEB_APP_URL}?action=getStudents`,{},0);
+          if(res.status !== 'success' || !Array.isArray(res.data))throw new Error(res.message || '學生名單格式錯誤');
+          appState.students=res.data;
+          savePublicCache();
+        }catch(error){errors.push('學生名單：'+error.message);}
+      })();
+      try{await Promise.all([articlesTask,studentsTask]);}
+      finally{
+        initialLoadBusy=false;overlay.classList.add('hidden');
+        if(errors.length)setLoadNotice((cachedAt ? '目前顯示上次資料；' : '')+errors.join('；'));
+        else setLoadNotice('');
+        if(appState.tab==='view' || appState.tab==='carousel'){renderApp();loadArticlePhotos();}
+      }
+    }
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    }
+    function getDisplayAuthor(article) {
+      const englishName = String(article.englishName || '').trim();
+      return [article.className, englishName || '尚未設定英文名字'].filter(Boolean).map(escapeHtml).join('・');
+    }
+    function switchTab(tabName) {
+      appState.tab = tabName;
+      if(carouselTimer) clearInterval(carouselTimer);
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('mode', tabName);
+        window.history.replaceState({}, '', url.href);
+      } catch (error) {
+        console.warn('無法更新網址，繼續切換頁面', error);
+      }
+      renderApp();
+      loadArticlePhotos();
+    }
+    function handleTitleClick() {
+      titleClickCount++;
+      clearTimeout(titleClickTimer);
+      titleClickTimer = setTimeout(() => { titleClickCount = 0; }, 2000);
+      if (titleClickCount < 3) return;
+      titleClickCount = 0;
+      const modal = document.getElementById('admin-login-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      document.getElementById('admin-password').value = '';
+      document.getElementById('admin-login-error').textContent = '';
+      document.getElementById('admin-password').focus();
+    }
+    function closeAdminLogin() {
+      const modal = document.getElementById('admin-login-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+    async function confirmAdminLogin(event) {
+      event.preventDefault();
+      if (document.getElementById('admin-password').value.trim() !== 'admin') {
+        document.getElementById('admin-login-error').textContent = '密碼錯誤，請重新輸入。';
+        return;
+      }
+      appState.adminPassword = 'admin';
+      closeAdminLogin();
+      switchTab('admin');
+      await loadPendingArticles();
+    }
+    async function loadPendingArticles() {
+      if (appState.adminBusy || appState.adminLoading) return;
+      appState.adminLoading = true;
+      appState.adminError = '';
+      if (appState.tab === 'admin') renderAdmin();
+      try {
+        const res = await fetchWithRetry(`${GAS_WEB_APP_URL}?action=getPending`);
+        if (res.status !== 'success') throw new Error(res.message || '讀取失敗');
+        if (!Array.isArray(res.pendingReplies)) throw new Error('請先將新版 GAS 更新部署，再重新整理網頁');
+        appState.pendingArticles = res.data;
+        appState.pendingReplies = res.pendingReplies;
+      } catch(error) { appState.adminError = error.message; }
+      finally {appState.adminLoading=false;if(appState.tab === 'admin') renderAdmin();}
+    }
+    function renderApp() {
+      const header = document.getElementById('app-header');
+      const main = document.getElementById('main-content');
+      if (appState.tab === 'carousel') {
+        header.classList.add('hidden');
+        main.className = ""; 
+        renderCarousel();
+      } else {
+        header.classList.remove('hidden');
+        main.className = "max-w-5xl mx-auto px-4 py-10";
+        updateHeaderUI();
+        if (appState.tab === 'view') renderView();
+        else if (appState.tab === 'submit') renderSubmit();
+        else if (appState.tab === 'admin') renderAdmin();
+        else if (appState.tab === 'mine') renderMyArticles();
+        else if (appState.tab === 'stats') renderPublicationStats();
+        else if (appState.tab === 'featured') renderFeaturedSettings();
+      }
+    }
+    function updateHeaderUI() {
+      document.getElementById('btn-view').className = `px-4 py-3 rounded-2xl font-black flex items-center gap-2 transition-all ${appState.tab === 'view' ? 'bg-orange-100 text-orange-700 shadow-inner' : 'text-gray-400 hover:bg-orange-50'}`;
+      document.getElementById('btn-carousel').className = `px-4 py-3 rounded-2xl font-black flex items-center gap-2 transition-all ${appState.tab === 'carousel' ? 'bg-rose-100 text-rose-700 shadow-inner' : 'text-gray-400 hover:bg-rose-50'}`;
+      document.getElementById('btn-submit').className = `px-6 py-3 rounded-2xl font-black flex items-center gap-2 shadow-xl transition-all ${appState.tab === 'submit' ? 'bg-gradient-to-r from-rose-500 to-orange-500 text-white' : 'bg-white text-rose-500 border-2 border-rose-100'}`;
+    }
+    function renderView() {
+      const main = document.getElementById('main-content');
+      let html = `
+        <div class="space-y-12">
+          <div class="flex flex-col md:flex-row gap-6">
+            <div class="relative flex-1">
+              <span class="absolute left-8 top-1/2 -translate-y-1/2 text-rose-300 w-8 h-8">${Icons.Search}</span>
+              <input type="text" id="searchInput" onkeyup="filterArticles(this.value)" placeholder="搜尋分享者或書名..." value="${appState.searchQuery}" class="w-full pl-20 pr-10 py-7 text-2xl border-none rounded-[32px] bg-white shadow-xl outline-none focus:ring-4 ring-rose-100 transition-all font-bold placeholder:text-gray-300">
+            </div>
+            ${appState.currentUser ? `
+              <div class="bg-rose-500 text-white px-8 py-5 rounded-[32px] flex items-center gap-4 font-black text-xl shadow-lg shadow-rose-200">
+                <span>${appState.currentUser}</span>
+                <button onclick="logout()" class="bg-white/20 p-1 rounded-full hover:bg-white/40 transition-colors">${Icons.X}</button>
+              </div>
+            ` : ''}
+          </div>
+          <div id="articles-container" class="grid grid-cols-1 gap-16"></div>
+        </div>
+      `;
+      main.innerHTML = html;
+      filterArticles(appState.searchQuery); 
+    }
+    function filterArticles(query) {
+      appState.searchQuery = query;
+      const container = document.getElementById('articles-container');
+      const q = query.toLowerCase();
+      const filtered = appState.articles.filter(a => 
+        (a.className && String(a.className).toLowerCase().includes(q)) ||
+        (a.author && a.author.toLowerCase().includes(q)) || 
+        (a.englishName && a.englishName.toLowerCase().includes(q)) ||
+        (a.title && a.title.toLowerCase().includes(q)) ||
+        (a.content && a.content.toLowerCase().includes(q))
+      );
+      if (filtered.length === 0) {
+        container.innerHTML = `
+          <div class="text-center py-20 bg-white rounded-[48px] border-4 border-dashed border-orange-100 p-10">
+             <p class="text-orange-200 text-3xl font-black italic">找不到相符的分享內容 📚</p>
+          </div>`;
+        return;
+      }
+      container.innerHTML = filtered.map((article, i) => {
+        const hasLiked = appState.currentUser && article.likes && article.likes.includes(appState.currentUser);
+        const likeIcon = hasLiked ? Icons.HeartFilled : Icons.Heart;
+        const likeClass = hasLiked ? 'bg-rose-500 text-white' : 'bg-rose-50 text-rose-500 hover:bg-rose-100';
+        let repliesHtml = (article.replies || []).map(r => `
+          <div class="flex gap-4 items-start">
+            <div class="w-12 h-12 rounded-full bg-orange-200 flex items-center justify-center font-black text-orange-600 text-xl">${r.user ? r.user[0] : '?'}</div>
+            <div class="bg-white p-5 rounded-2xl shadow-sm flex-1 min-w-0">
+              <div class="flex justify-between items-center mb-1">
+                <span class="font-black text-rose-500">${r.user}</span>
+                <span class="text-xs text-orange-200">${new Date(r.time).toLocaleDateString()}</span>
+              </div>
+              <p class="text-lg text-gray-700 font-medium break-words break-all">${r.text}</p>
+            </div>
+          </div>
+        `).join('');
+        if(repliesHtml === '') repliesHtml = `<p class="text-center text-orange-300 font-bold py-4">目前還沒有人回覆（需經審核）</p>`;
+        return `
+          <div class="bg-white rounded-[48px] shadow-xl shadow-orange-100/50 border-b-[16px] border-orange-100 overflow-hidden relative group transition-all hover:translate-y-[-4px]">
+            <div class="p-10 sm:p-14 flex flex-col md:flex-row gap-12">
+              ${photoPlaceholder(article)}
+              ${article.bookImage ? `
+                <div class="w-full md:w-64 shrink-0 rotate-[-2deg] group-hover:rotate-0 transition-transform">
+                  <img src="${article.bookImage}" class="w-full aspect-[3/4] object-cover rounded-3xl shadow-xl border-8 border-white" alt="封面">
+                </div>
+              ` : ''}
+              <div class="flex-1 min-w-0">
+                <div class="mb-6">
+                  <h3 class="text-4xl font-black text-gray-900 leading-tight mb-4 break-words">${article.title}</h3>${article.bookAuthor ? `<p class="text-xl text-orange-600 mb-4">書籍作者：${escapeHtml(article.bookAuthor)}</p>` : ''}
+                  <div class="flex flex-wrap items-center gap-3">
+                    <span class="bg-gradient-to-r from-rose-500 to-rose-400 text-white px-5 py-2 rounded-xl text-lg font-black shadow-md flex items-center gap-2 max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
+                       <span class="w-5 h-5 shrink-0">${Icons.User}</span> 分享者：${getDisplayAuthor(article)}
+                    </span>
+                    <span class="bg-orange-100 text-orange-700 px-5 py-2 rounded-xl text-lg font-bold flex items-center gap-2">
+                       📅 ${new Date(article.timestamp).toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+                <p class="text-2xl text-gray-600 leading-relaxed font-medium mb-10 break-words break-all whitespace-pre-wrap">${article.content}</p>
+                <div class="flex flex-wrap gap-4 pt-8 border-t-2 border-orange-50">
+                  <button onclick="handleLike('${article.id}', '${article.title}', '${article.author}')" class="flex items-center gap-3 px-8 py-4 rounded-3xl text-xl font-black transition-all ${likeClass}">
+                    <span class="w-7 h-7">${likeIcon}</span>
+                    點讚支持 ${article.likes && article.likes.length > 0 ? `<span class="bg-white/20 px-3 py-1 rounded-lg ml-1 text-inherit border border-current">${article.likes.length}</span>` : ''}
+                  </button>
+                  <button onclick="toggleComments('comments-${i}')" class="flex items-center gap-3 px-8 py-4 rounded-3xl text-xl font-black transition-all bg-orange-50 text-orange-600 hover:bg-orange-100">
+                    <span class="w-7 h-7">${Icons.MessageCircle}</span>
+                    回覆分享 (${article.replies ? article.replies.length : 0})
+                  </button>
+                </div>
+                <div id="comments-${i}" class="hidden mt-8 bg-orange-50/50 rounded-[40px] p-8 space-y-6">
+                  <p class="text-orange-600 font-bold">留言需登入，老師審核通過後才會公開。${appState.currentUser ? `目前登入：${escapeHtml(appState.currentUser)}` : `<button type="button" onclick="openAuthModal(null)" class="underline text-rose-600">點這裡登入</button>`}</p>
+                  <form onsubmit="handleReply(event, '${article.id}')" class="flex gap-4">
+                    <input type="text" id="reply-input-${article.id}" placeholder="${appState.currentUser ? `以 ${appState.currentUser} 的身分回覆...` : "請登入以回覆內容..."}" class="flex-1 px-8 py-4 rounded-2xl border-2 border-white focus:border-orange-300 outline-none shadow-inner bg-white/50 text-xl min-w-0">
+                    <button type="submit" class="bg-orange-500 text-white p-4 rounded-2xl shadow-lg hover:scale-105 active:scale-95 transition-transform"><span class="w-8 h-8 block">${Icons.Send}</span></button>
+                  </form>
+                  <div class="space-y-4">${repliesHtml}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+    function toggleComments(id) {
+      const el = document.getElementById(id);
+      el.classList.toggle('hidden');
+    }
+    let activeDraft = null;
+    function saveDraft() {
+      if (!activeDraft || !activeDraft.form.isConnected) return;
+      const values={};
+      activeDraft.fields.forEach(id=>{const el=document.getElementById(id);if(el)values[id]=el.value;});
+      const draft={values,image:appState.uploadedImageBase64 || '',savedAt:new Date().toISOString()};
+      try {
+        localStorage.setItem(activeDraft.key,JSON.stringify(draft));
+        document.getElementById('draft-status').textContent='已暫存於此瀏覽器・'+new Date(draft.savedAt).toLocaleTimeString('zh-TW');
+      } catch(error) {document.getElementById('draft-status').textContent='暫存失敗，請勿關閉頁面；可先複製心得內容。';}
+    }
+    function clearSubmittedDraft() {
+      if (!activeDraft) return;
+      try {localStorage.removeItem(activeDraft.key);} catch(error) {}
+      activeDraft=null;
+    }
+    function bindDraft(key, fields) {
+      const form=document.getElementById(fields[0]).form;
+      activeDraft={key:'reading-wall:draft:v1:'+key,fields,form};
+      const panel=document.createElement('div');panel.className='bg-orange-50 p-4 rounded-xl text-orange-700';
+      panel.innerHTML='<p id="draft-status" role="status">自動暫存於這台裝置的瀏覽器；密碼不會保存。</p><button type="button" onclick="saveDraft()" class="underline font-bold mt-2">立即暫存</button>';
+      form.prepend(panel);
+      try {
+        const raw=localStorage.getItem(activeDraft.key);
+        if(raw) {
+          const draft=JSON.parse(raw);
+          if(key==='student-new' && draft.values['form-class']) {document.getElementById('form-class').value=draft.values['form-class'];updateStudentDropdown();}
+          fields.forEach(id=>{const el=document.getElementById(id);if(el && typeof draft.values[id]==='string')el.value=draft.values[id];});
+          appState.uploadedImageBase64=draft.image || '';
+          if(draft.image)document.getElementById('img-preview-container').innerHTML=`<img src="${escapeHtml(draft.image)}" class="w-full rounded-xl" alt="草稿封面">`;
+          if(key==='student-new')updateWordCount(document.getElementById('form-content').value);
+          document.getElementById('draft-status').textContent='已恢復上次草稿・'+new Date(draft.savedAt).toLocaleString('zh-TW');
+        }
+      } catch(error){document.getElementById('draft-status').textContent='無法讀取草稿；請確認此瀏覽器允許儲存資料。';}
+      form.addEventListener('input',event=>{if(fields.includes(event.target.id))saveDraft();});
+      form.addEventListener('change',event=>{if(fields.includes(event.target.id))saveDraft();});
+    }
+    window.addEventListener('pagehide',saveDraft);
+    function compareSchoolClasses(a,b) {
+      const order={'一':1,'二':2,'三':3,'四':4,'五':5,'六':6};
+      const grade=value=>{
+        const text=String(value || '').normalize('NFKC').trim();
+        const match=text.match(/[一二三四五六1-6]/);
+        return match ? (order[match[0]] || Number(match[0])) : 99;
+      };
+      return grade(a)-grade(b) || String(a).localeCompare(String(b),'zh-Hant',{numeric:true});
+    }
+    function openAuthModal(callback, likeIntent = null) {
+      authLikeIntent = likeIntent;
+      authCallback = callback;
+      const classes = [...new Set(appState.students.map(s => s.className))].filter(Boolean).sort(compareSchoolClasses);
+      document.getElementById('auth-class').innerHTML = '<option value="">請選擇班級</option>' + classes.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+      document.getElementById('auth-name').innerHTML = '<option value="">請先選擇班級</option>';
+      document.getElementById('auth-error').textContent = '';
+      document.getElementById('auth-pwd').value = '';
+      document.getElementById('auth-modal').classList.remove('hidden');
+      document.getElementById('auth-modal').classList.add('flex');
+    }
+    function closeAuthModal() {
+      if (authBusy) return;
+      document.getElementById('auth-modal').classList.add('hidden');
+      document.getElementById('auth-modal').classList.remove('flex');
+    }
+    function updateAuthNames() {
+      const cls = document.getElementById('auth-class').value;
+      document.getElementById('auth-name').innerHTML = '<option value="">請選擇姓名</option>' + appState.students.filter(s => s.className === cls).map(s => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`).join('');
+    }
+    async function confirmAuth() {
+      if (authBusy) return;
+      const className = document.getElementById('auth-class').value;
+      const name = document.getElementById('auth-name').value;
+      const password = document.getElementById('auth-pwd').value;
+      if (!className || !name || !password) {document.getElementById('auth-error').textContent='請選班級、姓名，並輸入生日四碼';return;}
+      const intent = authLikeIntent;
+      const button = document.getElementById('auth-login-button');
+      authBusy = true;
+      button.disabled = true;
+      button.textContent = intent ? '正在驗證並按讚…' : '正在驗證…';
+      try {
+        const res = await fetchWithRetry(GAS_WEB_APP_URL, {method:'POST', body:JSON.stringify({action:'loginStudent', className, name, password, likeAfterLogin:intent ? {title:intent.title, author:intent.author} : undefined}),}, 0);
+        if (res.status !== 'success') throw new Error(res.message || '登入失敗');
+        appState.currentRole = res.user.role || 'student';
+        appState.studentToken = res.token;
+        appState.currentUser = res.user.className + '・' + (res.user.englishName || res.user.name);
+        authBusy = false;
+        closeAuthModal();
+        const callback = authCallback;
+        authCallback = null;
+        authLikeIntent = null;
+        if (intent) {
+          if (!res.liked) {showToast('已登入，請再按一次讚，並確認新版 GAS 已部署');renderApp();return;}
+          const article = appState.articles.find(a => a.id === intent.articleId);
+          if (article) {if (!article.likes) article.likes=[];if (!article.likes.includes(appState.currentUser)) article.likes.push(appState.currentUser);}
+          renderApp();
+          showToast('🧡 登入成功，已按讚！');
+        } else if (callback) await callback();
+        else {renderApp();showToast('登入成功，可以按讚或留言了！');}
+      } catch (error) { document.getElementById('auth-error').textContent = error.message; }
+      finally { authBusy = false; button.disabled = false; button.textContent = '確認登入'; }
+    }
+    function logout() {
+      appState.currentUser = null;
+      appState.studentToken = null;
+      renderView();
+    }
+    async function handleLike(articleId, title, author) {
+      if (!appState.currentUser) { openAuthModal(null, {articleId, title, author}); return; }
+      const article = appState.articles.find(a => a.id === articleId);
+      if (article?.likes?.includes(appState.currentUser)) { showToast('你已經按過讚了！'); return; }
+      try {
+        const res = await fetchWithRetry(GAS_WEB_APP_URL, {method:'POST', body:JSON.stringify({action:'addLike', title, author, token:appState.studentToken})}, 0);
+        if (res.status !== 'success') throw new Error(res.message || '按讚失敗');
+        if (article) { if (!article.likes) article.likes = []; article.likes.push(appState.currentUser); }
+        renderView();
+        showToast('🧡 謝謝點讚！');
+      } catch(error) { showToast(error.message); if (error.message.includes('登入')) {appState.currentUser=null;appState.studentToken=null;} }
+    }
+    async function handleReply(event, articleId) {
+      event.preventDefault();
+      const input = document.getElementById(`reply-input-${articleId}`);
+      const text = input.value.trim();
+      if (!text) {showToast('請先輸入留言內容');return;}
+      if (!appState.currentUser) {openAuthModal(() => handleReply({preventDefault(){}}, articleId));return;}
+      const button = input.form?.querySelector('button[type="submit"]');
+      if (button) button.disabled = true;
+      try {
+        const res = await fetchWithRetry(GAS_WEB_APP_URL, {method:'POST', body:JSON.stringify({action:'addReply', articleId, content:text, token:appState.studentToken})}, 0);
+        if (res.status !== 'success') throw new Error(res.message || '留言送出失敗');
+        input.value = '';
+        showToast('📝 留言已送出，老師審核通過後才會公開！');
+        renderView();
+      } catch(error) {showToast(error.message);if (error.message.includes('登入')) {appState.currentUser=null;appState.studentToken=null;}}
+      finally {if (button) button.disabled=false;}
+    }
+    // --- 渲染管理員審核介面 ---
+    function renderAdmin() {
+      const main = document.getElementById('main-content');
+      const toolbar = `<div class="flex flex-wrap items-center gap-4 mb-6"><button onclick="openFeaturedSettings()" class="px-5 py-3 rounded-xl bg-orange-500 text-white font-bold">輪播文章設定</button><button onclick="openPublicationStats()" class="px-5 py-3 rounded-xl bg-rose-500 text-white font-bold">學生刊登統計</button><button onclick="loadPendingArticles()" ${appState.adminBusy || appState.adminLoading ? 'disabled' : ''} class="px-5 py-3 rounded-xl bg-orange-100 text-orange-700 font-bold">重新整理審查清單</button><span role="status">${appState.adminBusy ? '正在儲存審核結果…' : appState.adminLoading ? '正在更新清單…' : ''}</span></div>`;
+      if (appState.adminError) {main.innerHTML=toolbar+`<p class="text-red-600">${escapeHtml(appState.adminError)}</p>`;return;}
+      if (appState.adminLoading && !appState.pendingArticles.length && !appState.pendingReplies.length) {main.innerHTML=toolbar;return;}
+      if (appState.pendingArticles.length === 0 && appState.pendingReplies.length === 0) {
+        main.innerHTML = toolbar + `
+          <div class="text-center py-20 bg-white rounded-[48px] border-4 border-dashed border-rose-100 p-10">
+             <p class="text-rose-300 text-3xl font-black italic">目前沒有待審文章或留言 🎉</p>
+          </div>
+        `;
+        return;
+      }
+      let html = toolbar + `<div class="space-y-8"><h2 class="text-3xl font-black text-rose-500 mb-6 flex items-center gap-3"><span class="w-8 h-8 block">${Icons.Lock}</span> 後台審核區：文章 ${appState.pendingArticles.length} 篇・留言 ${appState.pendingReplies.length} 則</h2>`;
+      html += appState.pendingArticles.map((article, i) => `
+        <div class="bg-white rounded-[32px] shadow-lg border-2 border-orange-100 p-8 flex flex-col md:flex-row gap-8">
+          ${article.bookImage ? `
+            <div class="w-full md:w-48 shrink-0">
+              <img src="${article.bookImage}" class="w-full aspect-[3/4] object-cover rounded-2xl shadow-md" alt="封面">
+            </div>
+          ` : ''}
+          <div class="flex-1 min-w-0">
+            <h3 class="text-2xl font-black text-gray-800 mb-2 break-words">${article.title}</h3>${article.bookAuthor ? `<p class="text-xl text-orange-600 mb-4">書籍作者：${escapeHtml(article.bookAuthor)}</p>` : ''}
+            <p class="text-rose-500 font-bold mb-4 bg-rose-50 inline-block px-3 py-1 rounded-lg break-words max-w-full">${getDisplayAuthor(article)} • ${new Date(article.timestamp).toLocaleString()}</p>
+            <p class="text-orange-600 mb-3">${article.feedback ? `上次修改建議：${escapeHtml(article.feedback)}` : ''}</p><p class="text-gray-600 mb-6 whitespace-pre-wrap break-words break-all">${article.content}</p>
+            <div class="flex gap-4">
+              <button onclick="handleAdminAction('${article.timestamp}', 'approveArticle')" class="px-6 py-3 bg-green-500 text-white rounded-xl font-bold shadow-md hover:bg-green-600 transition-colors flex items-center gap-2">
+                <span class="w-5 h-5">${Icons.CheckCircle}</span> 通過
+              </button>
+              <button onclick="handleAdminAction('${article.timestamp}', 'returnArticle')" class="px-6 py-3 bg-red-500 text-white rounded-xl font-bold shadow-md hover:bg-red-600 transition-colors flex items-center gap-2">
+                <span class="w-5 h-5">${Icons.X}</span> 退回修改
+              </button>
+              <button onclick="handleAdminAction('${article.timestamp}', 'deleteArticle')" class="px-4 py-3 text-gray-500 rounded-xl border border-gray-200">永久刪除</button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+      html += `<h2 class="text-3xl font-black text-rose-500 mt-10">待審留言 (${appState.pendingReplies.length})</h2>`;
+      html += appState.pendingReplies.map((reply, i) => `<div class="bg-white rounded-3xl p-8 shadow-lg space-y-4">
+        <h3 class="text-2xl font-bold">文章：${escapeHtml(reply.title)}</h3>
+        <p class="text-rose-500 font-bold">${escapeHtml(reply.user)}・${new Date(reply.timestamp).toLocaleString()}</p>
+        <p class="text-xl whitespace-pre-wrap break-words">${escapeHtml(reply.content)}</p>
+        <div class="flex gap-4"><button onclick="reviewReply(${i}, 'approveReply')" class="bg-green-500 text-white px-6 py-3 rounded-xl">通過留言</button><button onclick="reviewReply(${i}, 'deleteReply')" class="bg-red-500 text-white px-6 py-3 rounded-xl">刪除留言</button></div>
+      </div>`).join('');
+      html += `</div>`;
+      main.innerHTML = html;
+      if (appState.adminBusy || appState.adminLoading) main.querySelectorAll('button').forEach(button => {button.disabled=true;});
+    }
+    async function reviewReply(index, action) {
+      if (appState.adminBusy || appState.adminLoading) return;
+      const reply = appState.pendingReplies[index];
+      if (!reply || (action === 'deleteReply' && !confirm('確定要刪除這則留言？'))) return;
+      appState.adminBusy = true;
+      renderAdmin();
+      try {
+        const res = await fetchWithRetry(GAS_WEB_APP_URL, {method:'POST', body:JSON.stringify({action, rowNumber:reply.rowNumber, timestamp:reply.timestamp})}, 0);
+        if (res.status !== 'success') throw new Error(res.message || '審核失敗');
+        appState.pendingReplies = appState.pendingReplies.filter(item => item !== reply);
+        if (action === 'deleteReply') appState.pendingReplies.forEach(item => {if(item.rowNumber > reply.rowNumber) item.rowNumber--;});
+        const article = appState.articles.find(item => item.id === reply.articleId);
+        if (action === 'approveReply' && article) {
+          if (!article.replies) article.replies = [];
+          article.replies.push({user:reply.user,text:reply.content,time:reply.timestamp});
+        }
+        showToast(action === 'approveReply' ? '留言已通過！' : '留言已刪除');
+      } catch(error) {showToast(error.message);}
+      finally {appState.adminBusy=false;if(appState.tab === 'admin')renderAdmin();}
+    }
+    async function handleAdminAction(timestamp, actionStr) {
+      if (appState.adminBusy || appState.adminLoading) return;
+      if (actionStr === 'deleteArticle' && !confirm('確定要刪除這篇投稿？')) return;
+      const article = appState.pendingArticles.find(item => String(item.timestamp) === String(timestamp));
+      if (!article) return;
+      let feedback = '';
+      if (actionStr === 'returnArticle') {feedback = prompt('請填寫給學生的修改建議：');if (feedback === null) return;feedback=feedback.trim();if (!feedback) {showToast('請填寫修改建議');return;}}
+      appState.adminBusy=true;
+      renderAdmin();
+      try {
+        const res = await fetchWithRetry(GAS_WEB_APP_URL, {method:'POST',body:JSON.stringify({action:actionStr,timestamp,postId:article.postId,feedback})}, 0);
+        if (res.status !== 'success') throw new Error(res.message || '處理失敗');
+        appState.pendingArticles = appState.pendingArticles.filter(item => item !== article);
+        const id = article.title + article.author;
+        if (actionStr === 'approveArticle') {
+          appState.articles.unshift({...article,id,likes:[],replies:[]});
+        } else {appState.articles = appState.articles.filter(item => item.id !== id);}
+        showToast(actionStr === 'approveArticle' ? '文章已通過！' : actionStr === 'returnArticle' ? '已退回，學生可在我的投稿修改' : '文章已刪除');
+      } catch(error) {showToast(error.message);}
+      finally {appState.adminBusy=false;if(appState.tab === 'admin')renderAdmin();}
+    }
+    function getCarouselArticles() {return appState.articles.filter(article=>article.featured === true);}
+    async function openFeaturedSettings() {
+      if(!appState.adminPassword){showToast('請先登入管理員後台');return;}
+      appState.featuredSelection=appState.articles.filter(article=>article.featured===true).map(article=>String(article.timestamp));
+      switchTab('featured');
+      appState.featuredBusy=true;renderFeaturedSettings();
+      try {
+        const res=await fetchWithRetry(GAS_WEB_APP_URL);
+        if(res.status !== 'success')throw new Error(res.message || '讀取失敗');
+        appState.articles=res.data;
+        appState.featuredSelection=res.data.filter(article=>article.featured===true).map(article=>String(article.timestamp));
+      } catch(error){showToast(error.message);}
+      finally{appState.featuredBusy=false;if(appState.tab==='featured')renderFeaturedSettings();}
+    }
+    function toggleFeatured(index, checked) {
+      const stamp=String(appState.articles[index].timestamp);
+      appState.featuredSelection=appState.featuredSelection.filter(value=>value!==stamp);
+      if(checked)appState.featuredSelection.push(stamp);
+      document.getElementById('featured-count').textContent=appState.featuredSelection.length;
+    }
+    function renderFeaturedSettings() {
+      if(!appState.adminPassword)return;
+      document.getElementById('main-content').innerHTML=`<div class="space-y-6"><h2 class="text-3xl font-black text-rose-500">輪播文章設定</h2><p>勾選要輪播的已刊登文章，再按「儲存輪播設定」。一般分享牆仍顯示全部已刊登文章。</p><p class="font-bold">已選 <span id="featured-count">${appState.featuredSelection.length}</span> 篇</p><div class="flex flex-wrap gap-4"><button onclick="saveFeaturedSettings()" ${appState.featuredBusy ? 'disabled' : ''} class="px-6 py-3 bg-rose-500 text-white rounded-xl">${appState.featuredBusy ? '處理中…' : '儲存輪播設定'}</button><button onclick="switchTab('admin')" class="px-6 py-3 bg-orange-100 rounded-xl">返回審查頁</button></div><div class="space-y-4">${appState.articles.map((article,index)=>`<label class="flex items-start gap-4 bg-white rounded-3xl p-6 shadow"><input type="checkbox" class="w-6 h-6 mt-1" ${appState.featuredSelection.includes(String(article.timestamp)) ? 'checked' : ''} ${appState.featuredBusy ? 'disabled' : ''} onchange="toggleFeatured(${index},this.checked)"><div><h3 class="text-xl font-bold">${escapeHtml(article.title)}</h3><p class="text-rose-500">分享者：${getDisplayAuthor(article)}</p>${article.bookAuthor ? `<p>書籍作者：${escapeHtml(article.bookAuthor)}</p>` : ''}<p class="text-gray-500">投稿日期：${taipeiDate(article.timestamp)}</p><p class="mt-2 whitespace-pre-wrap break-words">${escapeHtml(String(article.content || '').slice(0,120))}${String(article.content || '').length>120 ? '…' : ''}</p></div></label>`).join('') || '<p>目前沒有已刊登文章。</p>'}</div></div>`;
+    }
+    async function saveFeaturedSettings() {
+      if(appState.featuredBusy)return;
+      appState.featuredBusy=true;renderFeaturedSettings();
+      try {
+        const selected=appState.featuredSelection.slice();
+        const res=await fetchWithRetry(GAS_WEB_APP_URL,{method:'POST',body:JSON.stringify({action:'setFeaturedArticles',password:appState.adminPassword,selectedTimestamps:selected})},0);
+        if(res.status !== 'success')throw new Error(res.message || '儲存失敗');
+        appState.articles.forEach(article=>{article.featured=selected.includes(String(article.timestamp));});
+        showToast('輪播設定已儲存，請重新整理獨立輪播頁');
+      } catch(error){showToast(error.message);}
+      finally{appState.featuredBusy=false;if(appState.tab==='featured')renderFeaturedSettings();}
+    }
+    function taipeiDate(value) {
+      const date=new Date(value);
+      if (!Number.isFinite(date.getTime())) return '';
+      const parts=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);
+      const get=type=>parts.find(part=>part.type===type).value;
+      return `${get('year')}-${get('month')}-${get('day')}`;
+    }
+    function buildPublicationSummary(articles, students, start, end, cls) {
+      const groups=new Map();
+      const key=student=>student.studentId ? 'id:'+student.studentId : JSON.stringify([student.className,student.name]);
+      students.filter(student=>!cls || student.className===cls).forEach(student=>groups.set(key(student),{...student,items:[]}));
+      for (const article of articles) {
+        const day=taipeiDate(article.timestamp);
+        if (!day || day < start || day > end || (cls && article.className !== cls) || String(article.studentId || '').startsWith('teacher:')) continue;
+        const id=key(article);
+        if (!groups.has(id)) groups.set(id,{...article,items:[]});
+        groups.get(id).items.push({...article,day});
+      }
+      return [...groups.values()].sort((a,b)=>compareSchoolClasses(a.className,b.className) || (Number(a.seat)||999)-(Number(b.seat)||999) || String(a.name).localeCompare(String(b.name),'zh-Hant'));
+    }
+    async function openPublicationStats() {
+      if (!appState.adminPassword) {showToast('請先連點標題三次，登入管理員後台');return;}
+      if (!appState.statsStart) {const today=taipeiDate(new Date());appState.statsStart=today.slice(0,8)+'01';appState.statsEnd=today;}
+      switchTab('stats');
+      await refreshPublicationStats();
+    }
+    async function refreshPublicationStats() {
+      if (appState.statsLoading) return;
+      appState.statsLoading=true;appState.statsError='';renderPublicationStats();
+      try {
+        const res=await fetchWithRetry(GAS_WEB_APP_URL,{method:'POST',body:JSON.stringify({action:'getPublicationStats',password:appState.adminPassword})},0);
+        if (res.status !== 'success') throw new Error(res.message || '讀取統計失敗');
+        appState.statsArticles=res.data;
+      } catch(error){appState.statsError=error.message;}
+      finally{appState.statsLoading=false;if(appState.tab==='stats')renderPublicationStats();}
+    }
+    function applyPublicationFilters() {
+      appState.statsStart=document.getElementById('stats-start').value;
+      appState.statsEnd=document.getElementById('stats-end').value;
+      appState.statsClass=document.getElementById('stats-class').value;
+      renderPublicationStats();
+    }
+    function renderPublicationStats() {
+      const main=document.getElementById('main-content');
+      if (!appState.adminPassword) {main.innerHTML='<p>請先登入管理員後台。</p>';return;}
+      const classes=[...new Set([...appState.students,...appState.statsArticles].map(item=>item.className).filter(Boolean))].sort(compareSchoolClasses);
+      const valid=appState.statsStart && appState.statsEnd && appState.statsStart<=appState.statsEnd;
+      const groups=valid ? buildPublicationSummary(appState.statsArticles,appState.students,appState.statsStart,appState.statsEnd,appState.statsClass) : [];
+      const count=groups.reduce((total,group)=>total+group.items.length,0);
+      main.innerHTML=`<div class="space-y-6"><div class="flex flex-wrap gap-4 items-center"><h2 class="text-3xl font-black text-rose-500">學生刊登統計</h2><button onclick="switchTab('admin')" class="px-4 py-2 bg-orange-100 rounded-xl">返回審查頁</button><button onclick="refreshPublicationStats()" ${appState.statsLoading ? 'disabled' : ''} class="px-4 py-2 bg-rose-500 text-white rounded-xl">${appState.statsLoading ? '正在更新…' : '更新統計資料'}</button></div><p>依投稿日期篩選目前已刊登的學生文章，含起日與迄日，日期以臺灣時間計算。未通過、退回修改及老師投稿不列入。</p><div class="flex flex-wrap gap-4 bg-white p-6 rounded-3xl"><label>投稿起日<input type="date" id="stats-start" value="${appState.statsStart}" onchange="applyPublicationFilters()" class="block border p-3 rounded-xl"></label><label>投稿迄日<input type="date" id="stats-end" value="${appState.statsEnd}" onchange="applyPublicationFilters()" class="block border p-3 rounded-xl"></label><label>班級<select id="stats-class" onchange="applyPublicationFilters()" class="block border p-3 rounded-xl"><option value="">全部班級</option>${classes.map(cls=>`<option value="${escapeHtml(cls)}" ${cls===appState.statsClass ? 'selected' : ''}>${escapeHtml(cls)}</option>`).join('')}</select></label></div>${!valid ? '<p class="text-red-600">請選擇日期，起日不能晚於迄日。</p>' : ''}${appState.statsError ? `<p class="text-red-600">${escapeHtml(appState.statsError)}</p>` : ''}<div class="text-xl font-bold">刊登總篇數：${count} 篇・有刊登的學生：${groups.filter(group=>group.items.length>0).length} 人</div><div class="overflow-x-auto bg-white rounded-3xl shadow"><table class="w-full text-left"><thead class="bg-orange-100"><tr><th class="p-4">班級</th><th class="p-4">座號</th><th class="p-4">學生姓名</th><th class="p-4">英文名</th><th class="p-4">刊登篇數</th><th class="p-4">標題與投稿日期</th></tr></thead><tbody>${groups.map(group=>`<tr class="border-b"><td class="p-4">${escapeHtml(group.className)}</td><td class="p-4">${escapeHtml(group.seat)}</td><td class="p-4 font-bold">${escapeHtml(group.name)}</td><td class="p-4">${escapeHtml(group.englishName)}</td><td class="p-4 font-bold text-rose-600">${group.items.length}</td><td class="p-4">${group.items.length ? `<ul class="list-disc pl-5 space-y-2">${group.items.sort((a,b)=>a.day.localeCompare(b.day)).map(item=>`<li>${escapeHtml(item.title)} <span class="text-gray-500">（${item.day}）</span></li>`).join('')}</ul>` : '—'}</td></tr>`).join('') || '<tr><td colspan="6" class="p-6 text-center">沒有符合條件的學生或刊登文章。</td></tr>'}</tbody></table></div></div>`;
+    }
+    function openTeacherArea() {
+      if (appState.currentUser && appState.currentRole === 'teacher') {renderTeacherForm();return;}
+      switchTab('mine');
+      document.getElementById('main-content').innerHTML=`<form onsubmit="loginTeacher(event)" class="bg-white rounded-3xl p-8 max-w-lg mx-auto space-y-5"><h2 class="text-3xl font-black text-rose-500">老師登入</h2><p>使用「老師名單」的中文姓名與密碼。老師分享直接公開。</p><label class="block">中文姓名<input id="teacher-name" required autocomplete="username" class="w-full p-4 bg-orange-50 rounded-xl"></label><label class="block">密碼<input id="teacher-password" type="password" required autocomplete="current-password" class="w-full p-4 bg-orange-50 rounded-xl"></label><button id="teacher-login" type="submit" class="px-6 py-3 bg-rose-500 text-white rounded-xl">登入老師分享</button><p id="teacher-error" class="text-red-600" role="alert"></p></form>`;
+    }
+    async function loginTeacher(event) {
+      event.preventDefault();const button=document.getElementById('teacher-login');button.disabled=true;button.textContent='正在驗證…';
+      try {
+        const res=await fetchWithRetry(GAS_WEB_APP_URL,{method:'POST',body:JSON.stringify({action:'loginTeacher',name:document.getElementById('teacher-name').value.trim(),password:document.getElementById('teacher-password').value})},0);
+        if(res.status !== 'success')throw new Error(res.message || '登入失敗');
+        appState.currentRole='teacher';appState.studentToken=res.token;appState.currentUser=res.user.englishName;
+        renderTeacherForm();
+      } catch(error){document.getElementById('teacher-error').textContent=error.message;}
+      finally{button.disabled=false;button.textContent='登入老師分享';}
+    }
+    function renderTeacherForm() {
+      switchTab('mine');
+      document.getElementById('main-content').innerHTML=`<form onsubmit="submitTeacher(event)" class="bg-white p-8 rounded-3xl space-y-5"><h2 class="text-3xl font-bold text-rose-500">老師閱讀分享</h2><p>分享者：${escapeHtml(appState.currentUser)}。送出後直接公開。</p><button type="button" onclick="openMyArticles()" class="underline">查看／修改我的投稿</button><label class="block">書名<input id="teacher-book" required class="w-full p-4 bg-orange-50 rounded-xl"></label><label class="block">書籍作者<input id="teacher-book-author" required class="w-full p-4 bg-orange-50 rounded-xl"></label><label class="block">心得（至少80字）<textarea id="teacher-content" required rows="8" class="w-full p-4 bg-orange-50 rounded-xl"></textarea></label><label class="block">封面照片<input type="file" id="form-img" accept="image/*" onchange="handleImageUpload(event)"></label><div id="img-preview-container" class="max-w-48"></div><button id="teacher-submit" type="submit" class="px-6 py-3 bg-rose-500 text-white rounded-xl">發布分享</button><button type="button" onclick="logout()" class="px-4 py-3">登出</button><p id="teacher-submit-error" class="text-red-600" role="alert"></p></form>`;
+      appState.uploadedImageBase64='';
+      bindDraft('teacher-new:'+appState.currentUser,['teacher-book','teacher-book-author','teacher-content']);
+    }
+    async function submitTeacher(event) {
+      event.preventDefault();
+      if (appState.imageProcessing) {showToast('照片處理中，請等照片預覽出現後再送出');return;}const button=document.getElementById('teacher-submit');button.disabled=true;button.textContent='正在發布…';
+      try {
+        const res=await fetchWithRetry(GAS_WEB_APP_URL,{method:'POST',body:JSON.stringify({action:'submitTeacher',token:appState.studentToken,bookTitle:document.getElementById('teacher-book').value,bookAuthor:document.getElementById('teacher-book-author').value,content:document.getElementById('teacher-content').value,bookImage:appState.uploadedImageBase64})},0);
+        if(res.status !== 'success')throw new Error(res.message || '發布失敗');
+        clearSubmittedDraft();
+        appState.articles.unshift(res.article);switchTab('view');showToast('老師分享已公開！');
+      } catch(error){document.getElementById('teacher-submit-error').textContent=error.message;}
+      finally{button.disabled=false;button.textContent='發布分享';}
+    }
+    async function openMyArticles() {
+      if (!appState.currentUser) {openAuthModal(() => openMyArticles());return;}
+      switchTab('mine');
+      document.getElementById('main-content').innerHTML = '<p class="text-xl">正在讀取你的投稿…</p>';
+      try {
+        const res = await fetchWithRetry(GAS_WEB_APP_URL, {method:'POST',body:JSON.stringify({action:'getMyArticles',token:appState.studentToken})},0);
+        if (res.status !== 'success') throw new Error(res.message || '讀取失敗');
+        appState.myArticles=res.data;
+        renderMyArticles();
+      } catch(error) {document.getElementById('main-content').innerHTML=`<p class="text-red-600">${escapeHtml(error.message)}</p><button onclick="openAuthModal(() => openMyArticles())" class="underline mt-4">重新登入</button>`;}
+    }
+    function renderMyArticles() {
+      document.getElementById('main-content').innerHTML = `<h2 class="text-3xl font-black text-rose-500 mb-6">我的投稿</h2><button onclick="openMyArticles()" class="mb-6 px-4 py-2 bg-orange-100 rounded-xl">更新投稿狀態</button><div class="space-y-6">${appState.myArticles.length ? appState.myArticles.map((article,i) => `<div class="bg-white p-8 rounded-3xl shadow-lg"><span class="text-rose-500 font-bold">${escapeHtml(article.status)}</span><h3 class="text-2xl font-bold mt-2">${escapeHtml(article.title)}</h3>${article.bookAuthor ? `<p class="mt-2">書籍作者：${escapeHtml(article.bookAuthor)}</p>` : ''}<p class="mt-4 whitespace-pre-wrap break-words">${escapeHtml(article.content)}</p>${article.feedback ? `<div class="bg-orange-50 p-4 rounded-xl mt-4"><b>老師的修改建議</b><p class="whitespace-pre-wrap">${escapeHtml(article.feedback)}</p></div>` : ''}${(article.status === '退回修改' || appState.currentRole === 'teacher') ? `<button onclick="editMyArticle(${i})" class="mt-4 px-6 py-3 bg-rose-500 text-white rounded-xl">修改原稿</button>` : ''}</div>`).join('') : '<p>目前沒有投稿。</p>'}</div>`;
+    }
+    function editMyArticle(index) {
+      const article = appState.myArticles[index];
+      if (!article || (article.status !== '退回修改' && appState.currentRole !== 'teacher')) return;
+      appState.editingPostId=article.postId;
+      document.getElementById('main-content').innerHTML=`<form onsubmit="resubmitMyArticle(event)" class="bg-white p-8 rounded-3xl space-y-5"><h2 class="text-3xl font-bold text-rose-500">修改投稿</h2><div class="bg-orange-50 p-4 rounded-xl"><b>老師的修改建議</b><p class="whitespace-pre-wrap">${escapeHtml(article.feedback)}</p></div><label class="block font-bold" for="edit-book">書名</label><input id="edit-book" required class="w-full p-4 bg-orange-50 rounded-xl"><label class="block font-bold" for="edit-book-author">書籍作者</label><input id="edit-book-author" required class="w-full p-4 bg-orange-50 rounded-xl"><label class="block font-bold" for="edit-content">心得（至少80字）</label><textarea id="edit-content" required rows="8" class="w-full p-4 bg-orange-50 rounded-xl"></textarea><p>原封面會保留，也可以更換照片。</p><div id="img-preview-container" class="max-w-48"></div><input id="form-img" type="file" accept="image/*" onchange="handleImageUpload(event)"><div class="flex gap-4"><button id="resubmit-button" type="submit" class="px-6 py-3 bg-rose-500 text-white rounded-xl">${appState.currentRole === 'teacher' ? '儲存並公開' : '重新送審'}</button><button type="button" onclick="renderMyArticles()" class="px-6 py-3 bg-gray-100 rounded-xl">返回我的投稿</button></div><p id="edit-error" class="text-red-600" role="alert"></p></form>`;
+      document.getElementById('edit-book').value=article.title;
+      document.getElementById('edit-book-author').value=article.bookAuthor || '';
+      document.getElementById('edit-content').value=article.content;
+      appState.uploadedImageBase64=article.bookImage || '';
+      if (article.bookImage) document.getElementById('img-preview-container').innerHTML=`<img src="${escapeHtml(article.bookImage)}" class="w-full rounded-xl" alt="原封面">`;
+      bindDraft('revision:'+article.postId,['edit-book','edit-book-author','edit-content']);
+    }
+    async function resubmitMyArticle(event) {
+      event.preventDefault();
+      if (appState.imageProcessing) {showToast('照片處理中，請等照片預覽出現後再送出');return;}
+      const title=document.getElementById('edit-book').value.trim();
+      const bookAuthor=document.getElementById('edit-book-author').value.trim();
+      const content=document.getElementById('edit-content').value.trim();
+      if (!title || content.length < 80 || !appState.uploadedImageBase64) {document.getElementById('edit-error').textContent='請填寫書名、至少80字心得及封面照片';return;}
+      const button=document.getElementById('resubmit-button');button.disabled=true;button.textContent='正在送審…';
+      try {
+        const res=await fetchWithRetry(GAS_WEB_APP_URL,{method:'POST',body:JSON.stringify({action:'reviseArticle',token:appState.studentToken,postId:appState.editingPostId,bookTitle:title,bookAuthor,content,bookImage:appState.uploadedImageBase64})},0);
+        if (res.status !== 'success') throw new Error(res.message || '送審失敗');
+        const article=appState.myArticles.find(a => a.postId === appState.editingPostId);
+        if (appState.currentRole === 'teacher') {
+          const published=appState.articles.find(a => a.postId === article.postId);
+          if (published) Object.assign(published,{title,bookAuthor,content,bookImage:appState.uploadedImageBase64,id:title+published.author});
+        }
+        Object.assign(article,{title,bookAuthor,content,bookImage:appState.uploadedImageBase64,status:res.statusText || '待審核'});
+        clearSubmittedDraft();
+        appState.editingPostId=null;renderMyArticles();showToast(appState.currentRole === 'teacher' ? '修改已公開，分享牆重新整理後可看到！' : '修改已送出，等待老師審核！');
+      } catch(error) {document.getElementById('edit-error').textContent=error.message;}
+      finally {button.disabled=false;button.textContent='重新送審';}
+    }
+    function renderSubmit() {
+      const main = document.getElementById('main-content');
+      const classes = [...new Set(appState.students.map(s => s.className))].filter(Boolean).sort(compareSchoolClasses);
+      let classOptions = `<option value="">請選擇...</option>` + classes.map(c => `<option value="${c}">${c}</option>`).join('');
+      main.innerHTML = `
+        <div class="bg-white rounded-[60px] shadow-2xl border-4 border-orange-50 overflow-hidden relative">
+          <div id="submit-loader" class="hidden absolute inset-0 bg-white/80 backdrop-blur z-50 flex-col items-center justify-center">
+             <div class="w-16 h-16 text-rose-500 animate-spin mb-4">${Icons.Loader2}</div>
+             <p class="text-2xl font-black text-rose-500">照片壓縮與上傳中，請稍候...</p>
+          </div>
+          <div class="bg-gradient-to-r from-rose-500 to-orange-400 p-12 text-white">
+            <h2 class="text-5xl font-black">撰寫心得 🖋️</h2>
+          </div>
+          <form onsubmit="submitForm(event)" class="p-12 space-y-10">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div class="space-y-3">
+                <label class="text-rose-500 font-black text-xl flex items-center gap-2"><span class="w-6 h-6">${Icons.GraduationCap}</span> 第一步：選擇年級</label>
+                <select id="form-class" onchange="updateStudentDropdown()" required class="w-full px-8 py-5 text-xl bg-orange-50 rounded-2xl outline-none focus:ring-4 ring-orange-100 font-bold cursor-pointer">
+                  ${classOptions}
+                </select>
+              </div>
+              <div class="space-y-3">
+                <label class="text-rose-500 font-black text-xl flex items-center gap-2"><span class="w-6 h-6">${Icons.User}</span> 第二步：選擇名字</label>
+                <select id="form-name" required disabled class="w-full px-8 py-5 text-xl bg-orange-50 rounded-2xl outline-none focus:ring-4 ring-orange-100 font-bold disabled:opacity-50 cursor-pointer">
+                  <option value="">請先選擇年級...</option>
+                </select>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div class="space-y-3">
+                <label class="text-rose-500 font-black text-xl flex items-center gap-2"><span class="w-6 h-6">${Icons.Lock}</span> 第三步：驗證密碼</label>
+                <input id="form-pwd" required type="password" placeholder="生日四碼 (如 0520)" class="w-full px-8 py-5 text-xl bg-orange-50 rounded-2xl outline-none focus:ring-4 ring-orange-100 font-bold">
+              </div>
+              <div class="space-y-3">
+                <label class="text-rose-500 font-black text-xl flex items-center gap-2"><span class="w-6 h-6">${Icons.Book}</span> 第四步：書本名稱</label>
+                <input id="form-book" required type="text" placeholder="你讀的是哪一本書呢？" class="w-full px-8 py-5 text-xl bg-orange-50 rounded-2xl outline-none focus:ring-4 ring-orange-100 font-bold">
+                <label for="form-book-author" class="block text-rose-500 font-black text-xl mt-4">書籍作者</label><input id="form-book-author" required type="text" placeholder="這本書的作者是誰？" class="w-full px-8 py-5 text-xl bg-orange-50 rounded-2xl outline-none font-bold">
+              </div>
+            </div>
+            <div class="space-y-3 relative">
+              <label class="text-rose-500 font-black text-xl flex items-center gap-2"><span class="w-6 h-6">${Icons.PenTool}</span> 第五步：分享心得</label>
+              <textarea id="form-content" oninput="updateWordCount(this.value)" required rows="6" placeholder="這本書在說什麼？最讓你感動的地方是哪裡？(至少 80 字)" class="w-full px-8 py-6 pb-12 text-2xl bg-orange-50 rounded-[40px] outline-none focus:ring-4 ring-orange-100 font-medium leading-relaxed"></textarea>
+              <div id="word-count-display" class="absolute bottom-6 right-8 text-lg font-bold text-rose-500">目前字數：0 / 還差 80 字</div>
+            </div>
+            <div class="flex flex-col items-center gap-10">
+               <div class="space-y-3 w-full max-w-lg">
+                 <p class="text-rose-500 font-black text-xl text-center flex items-center justify-center gap-2 mb-4"><span class="w-6 h-6">${Icons.Camera}</span> 最後：拍下精美的封面圖</p>
+                 <div onclick="document.getElementById('form-img').click()" class="w-64 h-80 mx-auto border-4 border-dashed border-orange-200 rounded-[40px] flex items-center justify-center cursor-pointer overflow-hidden bg-orange-50/30 transition-all hover:bg-orange-100/50 shadow-inner group relative">
+                   <div id="img-preview-container" class="text-center">
+                     <span class="w-16 h-16 text-orange-200 mx-auto block">${Icons.ImageIcon}</span>
+                     <p class="text-orange-300 font-black mt-2 text-xl">點擊拍照或上傳</p>
+                   </div>
+                   <!-- accept="image/*" 並加上 capture="environment" 方便平板直接開啟後鏡頭相機 -->
+                   <input type="file" id="form-img" class="hidden" accept="image/*" capture="environment" onchange="handleImageUpload(event)">
+                 </div>
+               </div>
+               <button type="submit" class="w-full max-w-lg py-8 bg-gradient-to-r from-rose-500 to-orange-500 text-white text-3xl font-black rounded-3xl shadow-xl shadow-rose-100 hover:scale-[1.02] active:scale-95 transition-all">
+                 確認投稿 🚀
+               </button>
+            </div>
+          </form>
+        </div>
+      `;
+      appState.uploadedImageBase64 = '';
+      bindDraft('student-new',['form-class','form-name','form-book','form-book-author','form-content']);
+    }
+    function updateStudentDropdown() {
+      const cls = document.getElementById('form-class').value;
+      const nameSelect = document.getElementById('form-name');
+      if(!cls) {
+        nameSelect.innerHTML = `<option value="">請先選擇年級...</option>`;
+        nameSelect.disabled = true;
+        return;
+      }
+      const filtered = appState.students.filter(s => s.className === cls).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+      nameSelect.innerHTML = `<option value="">請選擇...</option>` + filtered.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
+      nameSelect.disabled = false;
+    }
+    let imageUploadSequence = 0;
+    function compressBookPhoto(img) {
+      const canvas = document.createElement('canvas');
+      const originalWidth = img.naturalWidth || img.width;
+      const originalHeight = img.naturalHeight || img.height;
+      if (!originalWidth || !originalHeight) throw new Error('照片尺寸無法辨識');
+      const scale = Math.min(1, 800 / Math.max(originalWidth, originalHeight));
+      let width = Math.max(1, Math.round(originalWidth * scale));
+      let height = Math.max(1, Math.round(originalHeight * scale));
+      const qualities = [0.82, 0.68, 0.52, 0.38, 0.28];
+      // 先降品質；仍太大時逐步縮圖，保留試算表儲存所需的餘裕。
+      for (let attempt = 0; attempt < 12; attempt++) {
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('瀏覽器無法處理照片');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+        for (const quality of qualities) {
+          const result = canvas.toDataURL('image/jpeg', quality);
+          if (result.startsWith('data:image/jpeg') && result.length <= 48000) return result;
+        }
+        if (Math.max(width, height) <= 160) break;
+        width = Math.max(1, Math.round(width * 0.8));
+        height = Math.max(1, Math.round(height * 0.8));
+      }
+      throw new Error('照片無法壓縮至可儲存大小，請靠近書本重拍');
+    }
+    function handleImageUpload(event) {
+      const input = event.target;
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const sequence = ++imageUploadSequence;
+      appState.imageProcessing = true;
+      const preview = document.getElementById('img-preview-container');
+      const previousPreview = preview.innerHTML;
+      preview.textContent = '📸 照片處理中，請稍候…';
+      const objectUrl = URL.createObjectURL(file);
+      const img = new Image();
+      function finish() {URL.revokeObjectURL(objectUrl);if(sequence === imageUploadSequence) appState.imageProcessing=false;}
+      function fail(message) {
+        if(sequence === imageUploadSequence) {preview.innerHTML=previousPreview;input.value='';showToast(message);}
+        finish();
+      }
+      img.onerror = () => fail('無法讀取照片，請改用 JPG／PNG 或重新拍照');
+      img.onload = () => {
+        if(sequence !== imageUploadSequence || !preview.isConnected) {finish();return;}
+        try {
+          const dataUrl = compressBookPhoto(img);
+          appState.uploadedImageBase64 = dataUrl;
+          preview.innerHTML = `<img src="${dataUrl}" class="w-full h-full object-contain" alt="已壓縮的封面照片">`;
+          saveDraft();
+          showToast('📸 照片已處理完成，可以送出投稿！');
+          finish();
+        } catch(error) {fail(error.message);}
+      };
+      img.src = objectUrl;
+    }
+    function updateWordCount(text) {
+      const count = text.trim().length;
+      const display = document.getElementById('word-count-display');
+      if (display) {
+        if (count < 80) {
+          display.className = "absolute bottom-6 right-8 text-lg font-bold text-rose-500";
+          display.innerText = `目前字數：${count} / 還差 ${80 - count} 字`;
+        } else {
+          display.className = "absolute bottom-6 right-8 text-lg font-bold text-green-600";
+          display.innerText = `目前字數：${count} / 已達標！`;
+        }
+      }
+    }
+    async function submitForm(event) {
+      event.preventDefault();
+      if (appState.imageProcessing) {showToast('照片處理中，請等照片預覽出現後再送出');return;}
+      const className = document.getElementById('form-class').value;
+      const name = document.getElementById('form-name').value;
+      const pwd = document.getElementById('form-pwd').value;
+      const bookTitle = document.getElementById('form-book').value;
+      const content = document.getElementById('form-content').value;
+      if(!name) { showToast("👤 請先選擇名字喔！"); return; }
+      if(!appState.uploadedImageBase64) { showToast("📷 請上傳書本的照片喔！"); return; }
+      const wordCount = content.trim().length;
+      if(wordCount < 80) { 
+        showToast(`✍️ 心得內容還差 ${80 - wordCount} 字喔！再多分享一點吧！`); 
+        return; 
+      }
+      document.getElementById('submit-loader').classList.remove('hidden');
+      document.getElementById('submit-loader').classList.add('flex');
+      try {
+        const payload = {
+          className: className, name: name, password: pwd,
+          title: `分享：${bookTitle}`, bookTitle: bookTitle, bookAuthor: document.getElementById('form-book-author').value.trim(),
+          content: content, bookImage: appState.uploadedImageBase64
+        };
+        const response = await fetch(GAS_WEB_APP_URL, { method: 'POST', body: JSON.stringify(payload) });
+        const r = await response.json();
+        if(r.status === 'success') { 
+          clearSubmittedDraft();
+          showToast("🚀 投稿成功，等待老師審核中！"); 
+          switchTab('view'); 
+        } else {
+          showToast("❌ " + (r.message || "投稿失敗"));
+        }
+      } catch(err) { 
+        console.error(err);
+        showToast("連線異常，請檢查網路後再試"); 
+      } finally {
+        const loader = document.getElementById('submit-loader');
+        if(loader) { loader.classList.add('hidden'); loader.classList.remove('flex'); }
+      }
+    }
+    // --- 輪播模式 (Carousel) ---
+    function renderCarousel() {
+      const main = document.getElementById('main-content');
+      if (getCarouselArticles().length === 0) {
+        main.innerHTML = `
+          <div class="h-screen bg-orange-50 flex flex-col items-center justify-center gap-6 p-10 text-center">
+            <h2 class="text-4xl font-black text-orange-300 leading-relaxed">目前沒有設定精選輪播文章。<br/>請老師到後台勾選要播放的文章 📚</h2>
+            <button onclick="switchTab('view')" class="px-10 py-4 bg-rose-500 text-white rounded-3xl font-black text-2xl shadow-xl transition-transform hover:scale-105">返回首頁</button>
+          </div>
+        `;
+        return;
+      }
+      appState.carouselIndex = 0;
+      updateCarouselUI();
+    }
+    function updateCarouselUI() {
+      const main = document.getElementById('main-content');
+      const cur = getCarouselArticles()[appState.carouselIndex];
+      if(!cur) return;
+      const bubbles = [
+        ...(cur.likes || []).map(name => `<div class="rounded-3xl bg-white/20 px-6 py-4 text-2xl">🧡 ${escapeHtml(name)} 按讚支持</div>`),
+        ...(cur.replies || []).map(reply => `<div class="rounded-3xl bg-white text-rose-600 px-6 py-4 text-2xl"><p class="font-black text-lg mb-2">💬 ${escapeHtml(reply.user)}</p><p class="whitespace-pre-wrap break-words">${escapeHtml(reply.text)}</p></div>`)
+      ];
+      const replyHtml = bubbles.length ? `<div class="bubble-window mt-8 max-w-2xl" aria-label="已公開的按讚與留言"><div class="bubble-track ${bubbles.length > 2 ? 'bubble-scroll' : ''}" style="--bubble-duration:${Math.max(16,bubbles.length*7)}s">${bubbles.join('')}${bubbles.length > 2 ? `<div aria-hidden="true" class="contents">${bubbles.join('')}</div>` : ''}</div></div>` : '';
+      main.innerHTML = `
+        <section class="reading-carousel ${cur.bookImage || cur.hasImage ? '' : 'carousel-no-cover'} bg-gradient-to-br from-rose-500 to-orange-400 text-white">
+          <button onclick="switchTab('view')" class="absolute top-3 left-3 p-3 bg-white/20 rounded-full z-20" aria-label="返回分享牆">${Icons.ChevronLeft}</button>
+          <div class="carousel-article-column">
+            <header class="carousel-fixed-header"><div class="flex flex-wrap gap-3 mb-5"><span class="bg-white text-rose-500 px-5 py-3 rounded-2xl text-2xl font-black">分享者：${getDisplayAuthor(cur)}</span><span class="bg-white/20 px-4 py-3 rounded-2xl text-xl">${new Date(cur.timestamp).toLocaleDateString()}</span></div>
+            <h2 class="carousel-book-title font-black leading-tight break-words mb-5">${escapeHtml(cur.title)}</h2>
+            ${cur.bookAuthor ? `<p class="text-xl md:text-2xl mb-6">書籍作者：${escapeHtml(cur.bookAuthor)}</p>` : ''}
+            </header>
+            <div id="carousel-reading-pane" class="carousel-reading-pane" tabindex="0" aria-label="完整閱讀心得"><p class="carousel-full-text whitespace-pre-wrap break-words">${escapeHtml(cur.content)}</p></div>
+          </div>
+          <aside class="carousel-side">
+            ${photoPlaceholder(cur)}
+            ${cur.bookImage ? `<img src="${escapeHtml(cur.bookImage)}" class="carousel-cover" alt="書籍封面">` : ''}
+          </aside>
+          <footer class="carousel-footer"><div class="carousel-counts">🧡 ${cur.likes ? cur.likes.length : 0}　💬 ${cur.replies ? cur.replies.length : 0}<p class="text-base mt-2 opacity-80">${appState.carouselIndex+1} / ${getCarouselArticles().length}</p></div>${replyHtml}</footer>
+        </section>`;
+      startFullArticleScroll(cur);
+    }
+    function startFullArticleScroll(article) {
+      if (carouselTimer) clearInterval(carouselTimer);
+      const pane=document.getElementById('carousel-reading-pane');
+      let elapsed=0, bottomTime=0;
+      // 每秒約28像素，開頭與結尾各停留6秒。
+      const minimumSeconds=Math.max(15,String(article.content || '').length/12);
+      carouselTimer=setInterval(()=>{
+        if(appState.tab !== 'carousel' || !pane.isConnected){clearInterval(carouselTimer);return;}
+        elapsed+=0.05;
+        const maxScroll=Math.max(0,pane.scrollHeight-pane.clientHeight);
+        if(elapsed>=6 && pane.scrollTop<maxScroll) pane.scrollTop=Math.min(maxScroll,pane.scrollTop+1.4);
+        if(pane.scrollTop>=maxScroll-1) bottomTime+=0.05; else bottomTime=0;
+        if(bottomTime>=6 && elapsed>=minimumSeconds){
+          clearInterval(carouselTimer);
+          appState.carouselIndex=(appState.carouselIndex+1)%getCarouselArticles().length;
+          updateCarouselUI();
+        }
+      },50);
+    }
+    // --- 初始化 ---
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('icon-book-header').innerHTML = Icons.Book;
+      document.getElementById('icon-view').innerHTML = Icons.BookOpen;
+      document.getElementById('icon-carousel').innerHTML = Icons.Monitor;
+      document.getElementById('icon-submit').innerHTML = Icons.PenTool;
+      document.getElementById('icon-check-toast').innerHTML = Icons.CheckCircle;
+      const urlParams = new URLSearchParams(window.location.search);
+      const mode = urlParams.get('mode');
+      if (mode === 'carousel') {
+        appState.tab = 'carousel';
+      }
+      loadInitialData();
+    });
+  </script>
+<style>
+.reading-carousel{height:100vh;height:100dvh;box-sizing:border-box;position:relative;display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);grid-template-rows:minmax(0,1fr) auto;gap:12px 20px;padding:20px 20px 8px;overflow:hidden}
+.carousel-no-cover{grid-template-columns:minmax(0,1fr)}
+.carousel-article-column{min-height:0;min-width:0;display:flex;flex-direction:column;padding-top:36px}
+.carousel-fixed-header{flex-shrink:0;padding-right:10px}
+.carousel-reading-pane{flex:1;min-height:0;overflow-y:auto;padding:0 10px 12px 0;scrollbar-width:thin;overflow-wrap:anywhere}
+.carousel-book-title{font-size:clamp(42px,3.5vw,78px)}
+.carousel-full-text{font-size:clamp(36px,3vw,66px);line-height:1.35;font-weight:500;letter-spacing:.02em}
+.carousel-side{min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.carousel-cover{width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
+.carousel-footer{grid-column:1/-1;display:flex;align-items:center;gap:20px;min-height:68px;max-height:92px;padding:4px 8px;border-top:1px solid rgba(255,255,255,.2)}
+.carousel-counts{font-size:24px;font-weight:700;flex-shrink:0}
+.carousel-footer .bubble-window{flex:1;min-width:0;width:auto;max-width:none;height:76px;margin:0;mask-image:none}
+.carousel-footer .bubble-track{padding:0;gap:8px}
+.carousel-footer .bubble-track>div{padding:8px 16px;font-size:22px;line-height:1.35;border-radius:16px}
+.carousel-footer .bubble-track p{display:inline;margin:0 12px 0 0;font-size:22px}
+@media(max-width:767px){.reading-carousel{grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:10px;padding:12px 12px 6px}.carousel-article-column{padding-top:45px}.carousel-full-text{font-size:28px;line-height:1.35}.carousel-book-title{font-size:34px}.carousel-counts{font-size:18px}.carousel-footer{gap:8px}}
+.bubble-window {height:240px;overflow:hidden;mask-image:linear-gradient(transparent,black 8%,black 92%,transparent)}
+.bubble-track {display:flex;flex-direction:column;gap:16px;padding:16px 0}
+.bubble-scroll {animation:bubbleRise var(--bubble-duration,30s) linear infinite}
+.bubble-window:hover .bubble-track {animation-play-state:paused}
+@keyframes bubbleRise {from{transform:translateY(0)}to{transform:translateY(-50%)}}
+@media(prefers-reduced-motion:reduce){.bubble-scroll{animation:none}.bubble-window{overflow-y:auto}}
+</style></head>
+<body class="bg-gradient-to-br from-orange-50 via-rose-50 to-amber-50 font-sans text-gray-800 min-h-screen">
+  <!-- 初次載入動畫 -->
+  <div id="loading-overlay" class="fixed inset-0 bg-rose-50 z-50 flex flex-col items-center justify-center hidden">
+    <div class="w-20 h-20 text-rose-400 animate-spin mb-6">
+      <svg width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+    </div>
+    <p class="text-rose-400 text-4xl font-black animate-pulse">精采分享載入中...</p>
+  </div>
+  <!-- 頂部導覽列 -->
+  <header id="app-header" class="bg-white/80 backdrop-blur-xl shadow-lg border-b border-orange-100 sticky top-0 z-10 hidden">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6">
+      <div class="flex justify-between items-center h-24">
+        <!-- 加入 onclick 觸發管理員檢查 -->
+        <div class="flex items-center gap-3 cursor-pointer select-none" onclick="handleTitleClick()">
+          <div class="bg-gradient-to-br from-rose-500 to-orange-400 p-3 rounded-2xl shadow-lg rotate-3">
+            <span id="icon-book-header" class="text-white w-8 h-8 block"></span>
+          </div>
+          <h1 class="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-rose-600 to-orange-500 hidden sm:block">悅讀分享牆</h1>
+        </div>
+        <div class="flex gap-2">
+          <button id="btn-view" onclick="switchTab('view')">
+            <span id="icon-view" class="w-5 h-5"></span>觀看
+          </button>
+          <button id="btn-carousel" onclick="switchTab('carousel')">
+            <span id="icon-carousel" class="w-5 h-5"></span>輪播
+          </button>
+          <button onclick="openTeacherArea()" class="px-3 py-3 font-bold text-rose-600">老師分享</button>
+          <button onclick="openMyArticles()" class="px-3 py-3 font-bold text-orange-600">我的投稿</button>
+          <button id="btn-submit" onclick="switchTab('submit')">
+            <span id="icon-submit" class="w-5 h-5"></span>投稿
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+  <!-- 提示訊息 (Toast) -->
+  <div id="toast" class="hidden fixed top-28 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur shadow-2xl border-2 border-orange-200 text-orange-600 px-8 py-4 rounded-3xl z-50 font-black items-center gap-3 transition-opacity">
+    <span id="icon-check-toast" class="w-6 h-6"></span> <span></span>
+  </div>
+  <!-- 登入驗證彈窗 -->
+  <div id="auth-modal" class="hidden fixed inset-0 bg-rose-900/40 backdrop-blur-md z-[100] items-center justify-center p-6">
+    <div class="bg-white rounded-[40px] w-full max-w-md p-10 shadow-2xl border-t-8 border-orange-400">
+      <h3 class="text-3xl font-black text-gray-800 mb-2">驗證身分</h3>
+      <p class="text-rose-400 font-bold mb-8">請先登入才能點讚或回覆喔！</p>
+      <div class="space-y-5">
+        <label class="block font-bold">1. 選擇班級</label><select id="auth-class" onchange="updateAuthNames()" class="w-full px-6 py-4 bg-orange-50 rounded-2xl"></select><label class="block font-bold">2. 選擇姓名</label><select id="auth-name" class="w-full px-6 py-4 text-xl bg-orange-50/50 border-2 border-transparent focus:border-orange-300 rounded-2xl outline-none"></select>
+        <label class="block font-bold">3. 輸入生日月日四碼，例如 0520</label><input type="password" id="auth-pwd" placeholder="生日四碼 (如 0101)" class="w-full px-6 py-4 text-xl bg-orange-50/50 border-2 border-transparent focus:border-orange-300 rounded-2xl outline-none">
+        <p id="auth-error" class="text-red-600" role="alert"></p><div class="flex gap-4 pt-4">
+          <button onclick="closeAuthModal()" class="flex-1 py-4 font-bold text-gray-400 hover:bg-gray-100 rounded-2xl transition-all">取消</button>
+          <button id="auth-login-button" onclick="confirmAuth()" class="flex-[2] py-4 bg-gradient-to-r from-rose-500 to-orange-500 text-white font-black text-xl rounded-2xl shadow-lg shadow-rose-200 transition-all hover:scale-105">確認登入</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="admin-login-modal" class="hidden fixed inset-0 bg-rose-900/40 backdrop-blur-md z-[100] items-center justify-center p-6">
+    <form onsubmit="confirmAdminLogin(event)" class="bg-white rounded-[40px] w-full max-w-md p-10 shadow-2xl">
+      <h3 class="text-3xl font-black mb-6">管理員審查模式</h3>
+      <input id="admin-password" type="password" required autocomplete="current-password" placeholder="請輸入管理員密碼" class="w-full px-6 py-4 bg-orange-50 rounded-2xl">
+      <p id="admin-login-error" class="text-red-600 mt-3" role="alert"></p>
+      <div class="flex gap-4 mt-6">
+        <button type="button" onclick="closeAdminLogin()" class="flex-1 py-4 rounded-2xl bg-gray-100">取消</button>
+        <button type="submit" class="flex-1 py-4 rounded-2xl bg-rose-500 text-white font-bold">進入審查</button>
+      </div>
+    </form>
+  </div>
+  <!-- 主要內容區 -->
+  <main id="main-content"></main>
+</body>
+</html>
